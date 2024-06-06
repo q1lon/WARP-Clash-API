@@ -25,7 +25,8 @@ from config import SECRET_KEY, REQUEST_RATE_LIMIT, SHARE_SUBSCRIPTION
 from services.account import resetAccountKey, doUpdateLicenseKey
 from services.common import getCurrentAccount
 from services.subscription import generateClashSubFile, generateWireguardSubFile, generateSurgeSubFile, \
-    generateShadowRocketSubFile, generateSingBoxSubFile
+    generateShadowRocketSubFile, generateSingBoxSubFile, generateLoonSubFile
+from utils.sub_useragent import getSubTypeFromUA
 
 RATE_LIMIT_MAP = {}
 
@@ -111,22 +112,10 @@ def attachEndpoints(app: Flask):
     @app.route('/sub', methods=['GET'])
     def httpAutoSub():
         user_agent = request.headers.get('User-Agent', 'unknown').lower()
-        # Automatically detect subscription type by user agent
-        if "clash" in user_agent:  # Clash
-            return httpSubscription("clash")
-        elif "shadowrocket" in user_agent:  # Shadowrocket
-            return httpSubscription("shadowrocket")
-        elif "v2ray" in user_agent:  # V2Ray
-            return httpSubscription("shadowrocket")
-        elif "quantumult" in user_agent:  # Quantumult
-            return httpSubscription("clash")
-        elif "surge" in user_agent:  # Surge
-            return httpSubscription("surge")
-        elif "sing-box" in user_agent:  # Sing Box
-            return httpSubscription("sing-box")
+        sub_type = getSubTypeFromUA(user_agent)
 
         # By default, return Clash
-        return httpSubscription("clash")
+        return httpSubscription(sub_type)
 
     @app.route('/api/account', methods=['GET'])
     @rateLimit()
@@ -194,19 +183,30 @@ def attachEndpoints(app: Flask):
                                      f"expire=253388144714"
         }
 
+        # It seems that `dns` will cause problem in android.
+        # So it is necessary to check if the user agent contains "android".
+        # https://github.com/vvbbnn00/WARP-Clash-API/issues/74
+        is_android = "android" in user_agent
+
         if sub_type == "clash":  # Clash
-
-            # It seems that `dns` will cause problem in android.
-            # So it is necessary to check if the user agent contains "android".
-            # https://github.com/vvbbnn00/WARP-Clash-API/issues/74
-            is_android = "android" in user_agent
-
             file_data = generateClashSubFile(account,
                                              logger,
                                              best=best,
                                              proxy_format=proxy_format,
                                              random_name=random_name,
                                              is_android=is_android,
+                                             is_meta=False,
+                                             ipv6=ipv6)
+            file_name = f'Clash-{fake.color_name()}.yaml'
+
+        elif sub_type == "meta":  # Meta
+            file_data = generateClashSubFile(account,
+                                             logger,
+                                             best=best,
+                                             proxy_format=proxy_format,
+                                             random_name=random_name,
+                                             is_android=is_android,
+                                             is_meta=True,
                                              ipv6=ipv6)
             file_name = f'Clash-{fake.color_name()}.yaml'
 
@@ -241,6 +241,14 @@ def attachEndpoints(app: Flask):
                                                random_name=random_name,
                                                ipv6=ipv6)
             file_name = f'SingBox-{fake.color_name()}.json'
+
+        elif sub_type == 'loon':  # Loon
+            file_data = generateLoonSubFile(account,
+                                            logger,
+                                            best=best,
+                                            random_name=random_name,
+                                            ipv6=ipv6)
+            file_name = f'Loon-{fake.color_name()}.conf'
 
         # This might be deprecated in the future.
         elif sub_type == "only_proxies":  # Only proxies
